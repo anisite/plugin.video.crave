@@ -46,12 +46,17 @@ class Crave(Platform):
                 metadata_lang (str): Language used to fetch metadata
         '''
         super().__init__(cache_dir)
-        self.graphql = GraphQL(self.session, 'https://www.crave.ca/space-graphql/graphql/',
-                               self.tag, metadata_language=metadata_lang)
         self.login_handler: CraveLoginHandler = CraveLoginHandler(
             self.cache_dir, self.session, username, password)
         self.account_infos: Account = None
-        if self.login_handler.ensure_login():
+        access_token = self.login_handler.access_token if self.login_handler.ensure_login() else None
+        self.graphql = GraphQL(
+            self.session,
+            self.tag,
+            access_token=access_token,
+            metadata_language=metadata_lang
+        )
+        if access_token:
             self.get_account_infos()
         else:
             logger.info('Unable to login')
@@ -284,7 +289,10 @@ class Crave(Platform):
     # ================================================================
 
     def ensure_login(self) -> bool:
-        return self.login_handler.ensure_login()
+        result = self.login_handler.ensure_login()
+        if result:
+            self.graphql.access_token = self.login_handler.access_token
+        return result
 
     # ================================================================
     #   get_account_infos()
@@ -299,11 +307,11 @@ class Crave(Platform):
             self.graphql.scopes = self.login_handler.scopes
             self.graphql.packages = self.login_handler.packages
             self.account_infos = Account()
-            url = 'https://account.bellmedia.ca/api/profile/v1.1'
+            url = 'https://account.bellmedia.ca/api/account/v1.1'
             response = self._make_request_bearer(url=url, method='GET')
             response_parsed = json.loads(response.text)
-            self.account_infos.name = response_parsed[0]['nickname']
-            self.account_infos.picture = response_parsed[0]['avatarUrl']
+            self.account_infos.name = response_parsed.get('firstName') or response_parsed.get('email', '')
+            self.account_infos.picture = None
             return self.account_infos
         except:
             self.account_infos = None

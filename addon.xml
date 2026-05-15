@@ -3,8 +3,6 @@
 <addon id="plugin.video.crave" name="Crave" version="1.0.1" provider-name="antoine-lombardo">
   <requires>
     <import addon="script.module.inputstreamhelper" version="0.5.8"/>
-    <import addon="script.module.requests" version="2.25.1+"/>
-    <import addon="script.module.xmltodict" version="0.12.0"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="addon.py">
     <provides>video</provides>

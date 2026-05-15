@@ -83,6 +83,7 @@ def add_item_title_serie(element):
                  'season': media.season, 'duration': media.duration, 'tvshowtitle': element.title}
         list_item.setInfo(
             'video', infos)
+        list_item.setProperty('IsPlayable', 'true')
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE, url=media.to_url(BASE_URL), listitem=list_item, isFolder=False)
 
@@ -105,5 +106,6 @@ def add_item_title_movie(element):
              'duration': media.duration}
     list_item.setInfo(
         'video', infos)
+    list_item.setProperty('IsPlayable', 'true')
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE, url=media.to_url(BASE_URL), listitem=list_item, isFolder=False)

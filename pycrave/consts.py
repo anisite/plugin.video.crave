@@ -4,7 +4,7 @@
 #
 # ===================================================================
 
-CLIENT_ID = "crave-android"
+CLIENT_ID = "crave-web"
 CLIENT_PASS = 'default'
 
 
@@ -17,7 +17,7 @@ CLIENT_PASS = 'default'
 #
 # ===================================================================
 
-GRAPHQL_URL = 'https://www.crave.ca/space-graphql/graphql/'
+RTE_APP_ID = 'contentid/app-crave'
 
 
 
@@ -30,16 +30,19 @@ GRAPHQL_URL = 'https://www.crave.ca/space-graphql/graphql/'
 # ===================================================================
 
 DESTINATION_TO_SUBSCRIPTION = {
-  'starz_atexace': 'starz',
-  'crave_atexace': 'crave',
-  'se_atexace':    'superecran'
+  'starz_atexace':      'starz',
+  'crave_atexace':      'crave',
+  'crave_atexace_avod': 'crave',
+  'se_atexace':         'superecran'
 }
 
 SUBSCRIPTION_NAME_TO_PACKAGE_NAME = {
   'STARZ':       'starz_atexace',
   'CRAVE':       'crave_atexace',
+  'CRAVE_AVOD':  'crave_atexace_avod',
   'SUPER_ECRAN': 'se_atexace'
 }
+
 
 SCOPE_TO_SUBSCRIPTION_NAME = {
   'crave_total': 'CRAVE_TOTAL',
@@ -47,6 +50,14 @@ SCOPE_TO_SUBSCRIPTION_NAME = {
   'cravetv':     'CRAVE',
   'se':          'SUPER_ECRAN',
   'starz':       'STARZ'
+}
+
+# Maps GraphQL resourceCodes to CAPI package names for access checking
+RESOURCE_CODE_TO_PACKAGE_NAME = {
+  'cravetv':   'crave_atexace',
+  'craveads':  'crave_atexace_avod',
+  'se':        'se_atexace',
+  'starz':     'starz_atexace',
 }
 
 

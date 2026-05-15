@@ -2,7 +2,6 @@ import utils
 from pycrave import Crave
 import logging
 import os
-import inputstreamhelper
 from urllib import parse
 import sys
 import ast
@@ -129,15 +128,24 @@ elif OBJ_TYPE == 'media':
     media = Media.from_url(URL)
     play_infos = crave._get_play_infos_media(media)
 
-    is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
-    if is_helper.check_inputstream():
+    if play_infos is None:
+        xbmcgui.Dialog().ok(ADDON_NAME, 'No playback info available.')
+    else:
+        try:
+            import inputstreamhelper
+            is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
+            if not is_helper.check_inputstream():
+                exit(0)
+            inputstream_addon = is_helper.inputstream_addon
+        except ImportError:
+            inputstream_addon = 'inputstream.adaptive'
+
         play_item = xbmcgui.ListItem(path=play_infos.manifest_url)
-        play_item.setProperty(
-            'inputstream', is_helper.inputstream_addon)
-        play_item.setProperty(
-            'inputstream.adaptive.manifest_type', PROTOCOL)
+        play_item.setMimeType('application/dash+xml')
+        play_item.setContentLookup(False)
+        play_item.setProperty('inputstream', inputstream_addon)
+        play_item.setProperty('inputstream.adaptive.manifest_type', PROTOCOL)
         play_item.setProperty('inputstream.adaptive.license_type', DRM)
         play_item.setProperty(
             'inputstream.adaptive.license_key', play_infos.license_url + '||R{SSM}|')
-        player = xbmc.Player()
-        player.play(item=play_infos.manifest_url, listitem=play_item)
+        xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)
