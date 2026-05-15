@@ -13,7 +13,8 @@ import logging
 from .consts import (
   HEADERS, RTE_GRAPHQL_URL,
   GET_APP_PAYLOAD, GET_SCREEN_PAYLOAD, GET_CONTAINER_PAYLOAD,
-  GET_SEARCH_PAYLOAD, GET_SHOWPAGE_PAYLOAD, GET_SEASON_PAYLOAD
+  GET_SEARCH_PAYLOAD, GET_SHOWPAGE_PAYLOAD, GET_SEASON_PAYLOAD,
+  GET_CONTINUE_WATCHING_PAYLOAD, GET_MY_LIST_PAYLOAD
 )
 from typing import Any, Dict, List, Union
 from fuzzywuzzy import fuzz
@@ -72,6 +73,10 @@ class GraphQL():
       return None
     if category.type == 'screen':
       return self.get_elements_screen(category.id)
+    elif category.type == 'continue_watching':
+      return self._get_continue_watching()
+    elif category.type == 'my_list':
+      return self._get_my_list()
     elif category.type in ('rotator', 'grid', 'container'):
       return self.get_elements_container(category.id)
     return None
@@ -87,7 +92,7 @@ class GraphQL():
     if response.status_code != 200:
       logger.error('GetApp failed ({})'.format(response.status_code))
       return []
-    elements = []
+    screens = []
     try:
       nav_links = json.loads(response.text)['data']['app']['navigation']['navigationLinks']
       for link in nav_links:
@@ -98,12 +103,24 @@ class GraphQL():
             continue
           screen_id = action.get('id')
           title = l.get('displayTitle', '')
+          path = (action.get('path') or '').lower()
           if screen_id and title:
-            elements.append(Category(type='screen', title=title, id=screen_id))
+            screens.append({'id': screen_id, 'title': title, 'path': path})
         except Exception:
           continue
     except Exception:
       logger.error('Failed to parse GetApp navigation')
+
+    # Identify the home screen and inline its containers, with the remaining
+    # screens listed alongside as folders.
+    home = next((s for s in screens if s['path'] == 'home' or 'home' in s['id']), None)
+    elements: List[Union[Category, SearchResult]] = []
+    if home is not None:
+      elements.extend(self._get_screen_rte(home['id']))
+    for s in screens:
+      if home is not None and s['id'] == home['id']:
+        continue
+      elements.append(Category(type='screen', title=s['title'], id=s['id'], style='SCREEN'))
     return elements
 
   def _get_screen_rte(self, id: str) -> List[Union[Category, SearchResult]]:
@@ -128,7 +145,8 @@ class GraphQL():
             elements.append(Category(
               type='screen',
               title=link.get('displayTitle', ''),
-              id=action['id']
+              id=action['id'],
+              style='SCREEN'
             ))
         except Exception:
           continue
@@ -143,10 +161,18 @@ class GraphQL():
         return self.get_elements_container(containers[0]['id'])
 
       for c in containers:
-        title = c.get('displayTitle', '')
-        if not title:
+        title = (c.get('displayTitle') or '').strip()
+        style = (c.get('style') or '').upper()
+        # Skip promo teasers (style=TEASER) and CMS internal titles
+        # (e.g. "Advanced Container | EN/FR | ... | Promo Teasers")
+        if not title or style == 'TEASER' or '|' in title:
           continue
-        elements.append(Category(type='container', title=title, id=c['id']))
+        if style == 'CONTINUEWATCHING':
+          elements.append(Category(type='continue_watching', title=title, id=c['id'], style=style))
+        elif style == 'MYLIST':
+          elements.append(Category(type='my_list', title=title, id=c['id'], style=style))
+        else:
+          elements.append(Category(type='container', title=title, id=c['id'], style=style))
     except Exception:
       logger.error('Failed to parse GetScreen response for id={}'.format(id))
     return elements
@@ -177,6 +203,45 @@ class GraphQL():
 
   def get_elements_grid(self, id: str):
     return self.get_elements_container(id)
+
+  def _get_continue_watching(self) -> List[SearchResult]:
+    payload = deepcopy(GET_CONTINUE_WATCHING_PAYLOAD)
+    response = self._make_rte_request(payload)
+    if response.status_code != 200:
+      logger.error('GetContinueWatching failed ({})'.format(response.status_code))
+      return []
+    elements = []
+    try:
+      items = json.loads(response.text)['data']['continueWatchingItemsPage']['items'] or []
+      for item in items:
+        media = item.get('media') or {}
+        if not media.get('id'):
+          continue
+        r = self._parse_media_metadata(media)
+        if r:
+          elements.append(r)
+    except Exception as e:
+      logger.error('Failed to parse continue watching: {}'.format(e))
+    return elements
+
+  def _get_my_list(self) -> List[SearchResult]:
+    payload = deepcopy(GET_MY_LIST_PAYLOAD)
+    response = self._make_rte_request(payload)
+    if response.status_code != 200:
+      logger.error('GetMyList failed ({})'.format(response.status_code))
+      return []
+    elements = []
+    try:
+      items = json.loads(response.text)['data']['myListItemsPage']['items'] or []
+      for item in items:
+        if not item.get('id'):
+          continue
+        r = self._parse_media_metadata(item)
+        if r:
+          elements.append(r)
+    except Exception as e:
+      logger.error('Failed to parse my list: {}'.format(e))
+    return elements
 
   # ===================================================================
   #   SEARCH
@@ -248,14 +313,64 @@ class GraphQL():
 
   def _parse_media_metadata(self, item: dict) -> SearchResult:
     try:
+      typename = item.get('__typename') or 'MediaMetadata'
+      # ContentMetadata (e.g. EPISODIC containers): redirect to parent media so
+      # the user lands on the show page instead of trying to play one episode.
+      if typename == 'ContentMetadata':
+        media = item.get('media') or {}
+        if not media.get('id'):
+          return None
+        result = SearchResult()
+        episode_title = item.get('title') or ''
+        season_num = item.get('seasonNumber')
+        episode_num = item.get('episodeNumber')
+        label = media.get('title') or ''
+        if season_num and episode_num:
+          label = '{} - S{:0>2}E{:0>2}'.format(label, season_num, episode_num)
+          if episode_title:
+            label = '{}: {}'.format(label, episode_title)
+        result.title = label
+        result.search_title = media.get('title') or label
+        result.id = media['id']
+        result.platform_tag = self.tag
+        result.has_access = not item.get('locked', False)
+        result.description = item.get('shortDescription') or ''
+        result.media_type = 'tvshow'
+        imgs = item.get('metadataImages') or {}
+        try:
+          result.image = (imgs.get('poster') or {}).get('url') or ''
+        except Exception:
+          pass
+        try:
+          result.fanart = (imgs.get('thumbnail') or {}).get('url') or ''
+        except Exception:
+          pass
+        return result
+
+      # MediaMetadata (default)
       result = SearchResult()
       result.title = item['title']
       result.search_title = item['title']
       result.id = item['id']
       result.platform_tag = self.tag
       result.has_access = not item.get('locked', False)
+      result.description = item.get('shortDescription') or item.get('description') or ''
+      mt = (item.get('mediaType') or '').upper()
+      if mt == 'MOVIE':
+        result.media_type = 'movie'
+      elif mt == 'SERIES':
+        result.media_type = 'tvshow'
+      imgs = item.get('metadataImages') or {}
       try:
-        result.image = item['metadataImages']['poster']['url']
+        result.image = (imgs.get('poster') or {}).get('url') or ''
+      except Exception:
+        pass
+      try:
+        result.fanart = (imgs.get('thumbnail') or {}).get('url') or ''
+      except Exception:
+        pass
+      try:
+        result.logo = (item.get('originatingNetworkLogo') or {}).get('url') or ''
       except Exception:
         pass
       return result
@@ -300,8 +415,17 @@ class GraphQL():
           infos.year = int(media.get('productionYear', 0) or 0)
         except Exception:
           pass
+        imgs = media.get('metadataImages') or {}
         try:
-          infos.image = media['metadataImages']['poster']['url']
+          infos.image = (imgs.get('poster') or {}).get('url') or ''
+        except Exception:
+          pass
+        try:
+          infos.fanart = (imgs.get('thumbnail') or {}).get('url') or ''
+        except Exception:
+          pass
+        try:
+          infos.logo = (media.get('originatingNetworkLogo') or {}).get('url') or ''
         except Exception:
           pass
         infos.medias['default'] = m
@@ -313,8 +437,17 @@ class GraphQL():
     infos.title = media.get('title', '')
     infos.summary = media.get('description', '')
     infos.description = media.get('description', '')
+    imgs = media.get('metadataImages') or {}
     try:
-      infos.image = media['metadataImages']['poster']['url']
+      infos.image = (imgs.get('poster') or {}).get('url') or ''
+    except Exception:
+      pass
+    try:
+      infos.fanart = (imgs.get('thumbnail') or {}).get('url') or ''
+    except Exception:
+      pass
+    try:
+      infos.logo = (media.get('originatingNetworkLogo') or {}).get('url') or ''
     except Exception:
       pass
 

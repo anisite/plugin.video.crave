@@ -13,6 +13,8 @@ class ResultInfo():
         self.description: str = ''
         self.summary: str = ''
         self.image: str = ''
+        self.fanart: str = ''
+        self.logo: str = ''
 
         self.medias: Dict[str, Media] = {}
 

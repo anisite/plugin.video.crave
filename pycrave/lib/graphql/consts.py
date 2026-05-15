@@ -108,9 +108,16 @@ GET_CONTAINER_PAYLOAD = {
     '    containerItemsPage(cursor: $cursor, limit: $limit) {'
     '      cursor'
     '      items {'
+    '        __typename'
     '        ... on MediaMetadata {'
-    '          __typename id path title mediaType locked'
-    '          metadataImages { poster { url } }'
+    '          id path title mediaType locked shortDescription description'
+    '          metadataImages { poster { url } thumbnail { url } }'
+    '          originatingNetworkLogo { url }'
+    '        }'
+    '        ... on ContentMetadata {'
+    '          id path title contentType seasonNumber episodeNumber shortDescription locked'
+    '          media { id path title mediaType }'
+    '          metadataImages { poster { url } thumbnail { url } }'
     '        }'
     '      }'
     '    }'
@@ -138,8 +145,9 @@ GET_SEARCH_PAYLOAD = {
     '    pageSize hasMore found'
     '    mediaResults {'
     '      ... on MediaMetadata {'
-    '        __typename id path title mediaType locked'
-    '        metadataImages { poster { url } }'
+    '        __typename id path title mediaType locked shortDescription description'
+    '        metadataImages { poster { url } thumbnail { url } }'
+    '        originatingNetworkLogo { url }'
     '      }'
     '    }'
     '  }'
@@ -161,6 +169,7 @@ GET_SHOWPAGE_PAYLOAD = {
     '    description'
     '    productionYear'
     '    metadataImages { poster { url } thumbnail { url } }'
+    '    originatingNetworkLogo { url }'
     '    seasons { id title seasonNumber }'
     '    firstContent {'
     '      id title contentType locked'
@@ -168,6 +177,53 @@ GET_SHOWPAGE_PAYLOAD = {
     '      languageIndicators {'
     '        indicator indicatorLabel'
     '        languages { langCode displayTitle locked }'
+    '      }'
+    '    }'
+    '  }'
+    '}'
+  )
+}
+
+
+GET_CONTINUE_WATCHING_PAYLOAD = {
+  'operationName': 'GetContinueWatching',
+  'variables': {
+    'sessionContext': _SC,
+    'limit': 30
+  },
+  'query': (
+    'query GetContinueWatching($sessionContext: SessionContext!, $limit: Int, $cursor: String) {'
+    '  continueWatchingItemsPage(sessionContext: $sessionContext, limit: $limit, cursor: $cursor) {'
+    '    cursor'
+    '    items {'
+    '      id'
+    '      media {'
+    '        __typename id path title mediaType locked shortDescription description'
+    '        metadataImages { poster { url } thumbnail { url } }'
+    '        originatingNetworkLogo { url }'
+    '      }'
+    '    }'
+    '  }'
+    '}'
+  )
+}
+
+
+GET_MY_LIST_PAYLOAD = {
+  'operationName': 'GetMyList',
+  'variables': {
+    'sessionContext': _SC,
+    'limit': 50
+  },
+  'query': (
+    'query GetMyList($sessionContext: SessionContext!, $limit: Int, $cursor: String) {'
+    '  myListItemsPage(sessionContext: $sessionContext, limit: $limit, cursor: $cursor) {'
+    '    cursor'
+    '    items {'
+    '      ... on MediaMetadata {'
+    '        __typename id path title mediaType locked shortDescription description'
+    '        metadataImages { poster { url } thumbnail { url } }'
+    '        originatingNetworkLogo { url }'
     '      }'
     '    }'
     '  }'

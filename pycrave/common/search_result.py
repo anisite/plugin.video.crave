@@ -4,7 +4,7 @@ from urllib.parse import urlencode, parse_qs
 
 class SearchResult():
 
-    def __init__(self, requirements=[], has_access=True, title='', search_title='', type='', description='', id='', image='', platform_tag='', version=None):
+    def __init__(self, requirements=[], has_access=True, title='', search_title='', type='', description='', id='', image='', fanart='', logo='', media_type='', platform_tag='', version=None):
         self.obj_type = 'result'
         self.requirements: List[str] = requirements
         self.has_access: bool = has_access
@@ -14,6 +14,9 @@ class SearchResult():
         self.description: str = description
         self.id: str = id
         self.image: str = image
+        self.fanart: str = fanart
+        self.logo: str = logo
+        self.media_type: str = media_type
         self.platform_tag: str = platform_tag
         self.version: str = version
 

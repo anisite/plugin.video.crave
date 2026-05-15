@@ -4,12 +4,13 @@ from urllib.parse import urlencode, parse_qs
 
 
 class Category(ABC):
-    def __init__(self, type='', title='', image='', id=''):
+    def __init__(self, type='', title='', image='', id='', style=''):
         self.obj_type = 'category'
         self.type: str = type
         self.title: str = title
         self.image: str = image
         self.id: str = id
+        self.style: str = style
 
     def to_url(self, base: str):
         return base + '?' + urlencode({

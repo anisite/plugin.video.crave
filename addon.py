@@ -60,21 +60,34 @@ if crave.account_infos == None:
     exit(1)
 
 # SETUP GUI
-xbmcplugin.setContent(ADDON_HANDLE, 'movies')
-view_modes = {
-    'grid': '500',
-    'thumb_right': '50',
-    'list': '55',
-    'caroussel': '51',
-    'fixed_right': '502'
-}
-view_mode = view_modes['grid']
+# Estuary skin view IDs:
+#   500 grid (poster wall) | 50 thumb-right | 55 list | 51 caroussel | 502 fixed_right
+GRID_VIEW = '500'
+LIST_VIEW = '55'
+EPISODES_VIEW = '502'
+
+
+def _set_content_for(elements):
+    has_movie = any(getattr(e, 'media_type', '') == 'movie' for e in elements)
+    has_show = any(getattr(e, 'media_type', '') == 'tvshow' for e in elements)
+    has_result = any(getattr(e, 'obj_type', '') == 'result' for e in elements)
+    if has_movie and not has_show:
+        xbmcplugin.setContent(ADDON_HANDLE, 'movies')
+    elif has_show and not has_movie:
+        xbmcplugin.setContent(ADDON_HANDLE, 'tvshows')
+    elif has_result:
+        xbmcplugin.setContent(ADDON_HANDLE, 'videos')
+    else:
+        xbmcplugin.setContent(ADDON_HANDLE, 'files')
+    return GRID_VIEW if has_result else LIST_VIEW
+
 
 # COMMAND
 if OBJ_TYPE == 'none':
 
     # COMMAND: MAIN MENU
     if CMDS == 'main':
+        xbmcplugin.setContent(ADDON_HANDLE, 'files')
         add_search_item()
         elements = crave.get_root_categories()
         if elements is not None:
@@ -83,7 +96,7 @@ if OBJ_TYPE == 'none':
                 if list_item is None:
                     continue
             xbmcplugin.endOfDirectory(ADDON_HANDLE)
-            xbmc.executebuiltin("Container.SetViewMode({})".format(view_mode))
+            xbmc.executebuiltin("Container.SetViewMode({})".format(LIST_VIEW))
 
     # COMMAND: SEARCH
     elif CMDS == 'search':
@@ -92,9 +105,8 @@ if OBJ_TYPE == 'none':
             exit(0)
         results = crave.search(search_terms)
         if results is not None:
+            view_mode = _set_content_for(results)
             for result in results:
-                if result.obj_type == 'result':
-                    view_mode = view_modes['caroussel']
                 list_item = add_item(result, len(results))
             xbmcplugin.endOfDirectory(ADDON_HANDLE)
             xbmc.executebuiltin("Container.SetViewMode({})".format(view_mode))
@@ -104,9 +116,8 @@ elif OBJ_TYPE == 'category':
     category = Category.from_url(URL)
     elements = crave.get_elements(category)
     if elements is not None:
+        view_mode = _set_content_for(elements)
         for element in elements:
-            if element.obj_type == 'result':
-                view_mode = view_modes['caroussel']
             list_item = add_item(element, len(elements))
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         xbmc.executebuiltin("Container.SetViewMode({})".format(view_mode))
@@ -118,7 +129,11 @@ elif OBJ_TYPE == 'result':
     if title is not None and PLAY_LANG in title:
         title = title[PLAY_LANG]
         if title.type == 'serie':
-            view_mode = view_modes['fixed_right']
+            xbmcplugin.setContent(ADDON_HANDLE, 'episodes')
+            view_mode = EPISODES_VIEW
+        else:
+            xbmcplugin.setContent(ADDON_HANDLE, 'movies')
+            view_mode = GRID_VIEW
         list_item = add_item(title)
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         xbmc.executebuiltin("Container.SetViewMode({})".format(view_mode))
