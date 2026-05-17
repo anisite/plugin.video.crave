@@ -238,25 +238,27 @@ class Crave(Platform):
         return self._get_play_infos_id(
             id=media.play_id,
             destination=media.additionnal_infos['destination'],
-            language=media.playback_languages[0])
+            language=media.playback_languages[0],
+            is_live=media.additionnal_infos.get('is_live', False))
 
     # ================================================================
     #   _get_play_infos_id()
     # ================================================================
 
-    def _get_play_infos_id(self, id: str, destination: str, language: str = 'fr') -> PlayInfos:
+    def _get_play_infos_id(self, id: str, destination: str, language: str = 'fr', is_live: bool = False) -> PlayInfos:
         '''
         Returns play infos for the provided media ID
             Args:
                 id (str): The media ID
                 destination (str): The destination ID
                 language (str): The language ('fr' or 'en')
+                is_live (bool): Request HLS format for live channels
             Returns:
                 PlayInfos: The play infos
         '''
         if not self.ensure_login():
             return None
-        return CAPI.get_play_infos(destination, id, language, token=self.login_handler.access_token, filter='0x14')
+        return CAPI.get_play_infos(destination, id, language, token=self.login_handler.access_token, filter='0x14', is_live=is_live)
 
     # ===================================================================
     #

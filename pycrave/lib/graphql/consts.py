@@ -119,7 +119,7 @@ GET_CONTAINER_PAYLOAD = {
     '          media { id path title mediaType }'
     '          metadataImages { poster { url } thumbnail { url } }'
     '        }'
-    '      }'
+'      }'
     '    }'
     '  }'
     '}'
@@ -223,6 +223,33 @@ GET_MY_LIST_PAYLOAD = {
     '        __typename id path title mediaType locked shortDescription description'
     '        metadataImages { poster { url } thumbnail { url } }'
     '        originatingNetworkLogo { url }'
+    '      }'
+    '    }'
+    '  }'
+    '}'
+  )
+}
+
+
+GET_LIVE_CHANNELS_PAYLOAD = {
+  'operationName': 'GetChannelEventList',
+  'variables': {
+    'sessionContext': _SC,
+    'groupId': 'AllChannels'
+  },
+  'query': (
+    'query GetChannelEventList($sessionContext: SessionContext!, $groupId: String!) {'
+    '  liveChannelGroup(sessionContext: $sessionContext, groupId: $groupId) {'
+    '    groupId groupName'
+    '    channels {'
+    '      channelId'
+    '      streamContent {'
+    '        __typename id path title shortDescription locked'
+    '        metadataImages { channelLogo { url } }'
+    '      }'
+    '      events {'
+    '        tmsId eventTitle startTimeUtc endTimeUtc'
+    '        eventImage { url }'
     '      }'
     '    }'
     '  }'

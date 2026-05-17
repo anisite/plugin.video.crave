@@ -32,10 +32,11 @@ STREAM_HEADERS = {
 
 class CAPI():
   @staticmethod
-  def get_play_infos(destination: str, content_id: str, language: str, token: str = None, filter: str = None) -> PlayInfos:
+  def get_play_infos(destination: str, content_id: str, language: str, token: str = None, filter: str = None, is_live: bool = False) -> PlayInfos:
     '''
     `destination` is ignored (kept for backwards compatibility). The new flow
     resolves the destination and package via the playback service.
+    Set `is_live=True` to request an HLS manifest (format=m3u8) for live channels.
     '''
     if not token:
       logger.error('Playback requires a profile-scoped access token')
@@ -57,12 +58,12 @@ class CAPI():
       return None
 
     # 3. Resolve the actual manifest URL via stream meta endpoint
-    stream = CAPI._get_stream_urls(content_id, package_id, destination_id, token)
+    fmt = 'm3u8' if is_live else 'mpd'
+    stream = CAPI._get_stream_urls(content_id, package_id, destination_id, token, fmt=fmt)
     if not stream:
       return None
 
     manifest_url = stream.get('playback')
-    subtitles_url = stream.get('trickplay')
     if not manifest_url:
       logger.error('No playback URL in stream meta response')
       return None
@@ -70,6 +71,20 @@ class CAPI():
     # Pass token via pipe-headers so inputstream.adaptive includes Authorization
     pipe_headers = 'User-Agent=okhttp%2F4.9.0&Authorization=Bearer+{}'.format(token)
     manifest_url_piped = manifest_url + '|{}'.format(pipe_headers)
+
+    if is_live:
+      return PlayInfos(
+          manifest_url=manifest_url_piped,
+          subtitles_url=None,
+          license_url=None,
+          manifest_headers=STREAM_HEADERS,
+          license_headers=None,
+          package_code=package_code,
+          content_package_id=package_id,
+          is_hls=True,
+      )
+
+    subtitles_url = stream.get('trickplay')
     subtitles_url_piped = (subtitles_url + '|{}'.format(pipe_headers)) if subtitles_url else None
     license_url = LICENSE_URL + '?jwt={}'.format(token)
 
@@ -124,11 +139,11 @@ class CAPI():
       return None
 
   @staticmethod
-  def _get_stream_urls(content_id: str, package_id: str, destination_id: int, token: str) -> dict:
+  def _get_stream_urls(content_id: str, package_id: str, destination_id: int, token: str, fmt: str = 'mpd') -> dict:
     url = ('{}/meta/content/{}/contentpackage/{}/destination/{}/platform/1'
-           '?format=mpd&filter=fe&uhd=false&hd=true&mcv=false&mca=false'
+           '?format={}&filter=fe&uhd=false&hd=true&mcv=false&mca=false'
            '&mta=true&stt=true&hdr10=true').format(
-      STREAM_META_BASE_URL, content_id, package_id, destination_id)
+      STREAM_META_BASE_URL, content_id, package_id, destination_id, fmt)
     headers = dict(STREAM_HEADERS)
     headers['authorization'] = 'Bearer ' + token
     response = requests.get(url=url, headers=headers)

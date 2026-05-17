@@ -14,7 +14,7 @@ from .consts import (
   HEADERS, RTE_GRAPHQL_URL,
   GET_APP_PAYLOAD, GET_SCREEN_PAYLOAD, GET_CONTAINER_PAYLOAD,
   GET_SEARCH_PAYLOAD, GET_SHOWPAGE_PAYLOAD, GET_SEASON_PAYLOAD,
-  GET_BOOKMARKS_BY_SEASON_PAYLOAD,
+  GET_BOOKMARKS_BY_SEASON_PAYLOAD, GET_LIVE_CHANNELS_PAYLOAD,
   GET_CONTINUE_WATCHING_PAYLOAD, GET_MY_LIST_PAYLOAD
 )
 from typing import Any, Dict, List, Union
@@ -80,6 +80,8 @@ class GraphQL():
       return self._get_my_list()
     elif category.type in ('rotator', 'grid', 'container'):
       return self.get_elements_container(category.id)
+    elif category.type == 'live':
+      return self.get_live_channels()
     return None
 
   def _get_root_categories_rte(self) -> List[Category]:
@@ -111,12 +113,16 @@ class GraphQL():
     # screens listed alongside as folders.
     home = next((s for s in screens if s['path'] == 'home' or 'home' in s['id']), None)
     non_home_ids = {s['id'] for s in screens if home is None or s['id'] != home['id']}
+    non_home_titles = {s['title'].lower().strip() for s in screens if home is None or s['id'] != home['id']}
     elements: List[Union[Category, SearchResult]] = []
     if home is not None:
-      # Inline home containers but drop any sub-nav links that are already
-      # top-level screens (avoids duplicates like "Junior" appearing twice).
+      # Inline home containers but drop:
+      # - sub-nav links already in top-level screens (by ID)
+      # - containers whose title duplicates a top-level screen title
       for el in self._get_screen_rte(home['id']):
         if getattr(el, 'id', None) in non_home_ids:
+          continue
+        if (el.title or '').lower().strip() in non_home_titles:
           continue
         elements.append(el)
     for s in screens:
@@ -179,6 +185,8 @@ class GraphQL():
           elements.append(Category(type='continue_watching', title=title, id=c['id'], style=style))
         elif style == 'MYLIST':
           elements.append(Category(type='my_list', title=title, id=c['id'], style=style))
+        elif style == 'LIVE':
+          elements.append(Category(type='live', title=title, id=c['id'], style=style))
         else:
           elements.append(Category(type='container', title=title, id=c['id'], style=style))
     except Exception:
@@ -196,8 +204,15 @@ class GraphQL():
       return []
     elements = []
     try:
-      items = json.loads(response.text)['data']['container']['containerItemsPage']['items']
-      for item in items or []:
+      body = json.loads(response.text)
+      if body.get('errors'):
+        logger.warning('Container {} GraphQL errors: {}'.format(id, body['errors']))
+      items = body['data']['container']['containerItemsPage']['items'] or []
+      logger.debug('Container {} returned {} items'.format(id, len(items)))
+      if items and all(item.get('__typename') == 'LiveChannel' for item in items):
+        logger.debug('Container {} has LiveChannel items — redirecting to GetChannelEventList'.format(id))
+        return self.get_live_channels()
+      for item in items:
         result = self._parse_media_metadata(item)
         if result:
           elements.append(result)
@@ -249,6 +264,62 @@ class GraphQL():
           elements.append(r)
     except Exception as e:
       logger.error('Failed to parse my list: {}'.format(e))
+    return elements
+
+  def get_live_channels(self) -> List:
+    payload = deepcopy(GET_LIVE_CHANNELS_PAYLOAD)
+    response = self._make_rte_request(payload)
+    if response.status_code != 200:
+      logger.error('GetChannelEventList failed ({})'.format(response.status_code))
+      return []
+    elements = []
+    try:
+      body = json.loads(response.text)
+      if body.get('errors'):
+        logger.warning('GetChannelEventList errors: {}'.format(body['errors']))
+      group = ((body.get('data') or {}).get('liveChannelGroup') or {})
+      channels = group.get('channels') or []
+      logger.debug('GetChannelEventList returned {} channels'.format(len(channels)))
+      channel_name_overrides = {
+          '2013891': 'Noovo',
+      }
+      for ch in channels:
+        stream = ch.get('streamContent') or {}
+        content_id = str(stream.get('id') or '')
+        channel_id_str = str(ch.get('channelId') or '')
+        title = channel_name_overrides.get(channel_id_str) or stream.get('title') or channel_id_str
+        if not content_id or not title:
+          continue
+        logo_url = ''
+        try:
+          logo_url = stream['metadataImages']['channelLogo']['url'] or ''
+        except Exception:
+          pass
+        events = ch.get('events') or []
+        now_playing = events[0].get('eventTitle', '') if events else ''
+        display_title = '{} — {}'.format(title, now_playing) if now_playing else title
+
+        m = MediaMovie()
+        m.title = display_title
+        m.description = now_playing
+        m.summary = stream.get('shortDescription') or ''
+        m.image = logo_url
+        m.has_access = not stream.get('locked', False)
+        m.playback_languages = [self._user_language.lower()]
+        m.additionnal_infos['destination'] = ''
+        m.additionnal_infos['is_live'] = True
+        m.play_id = content_id
+
+        from ...common.result_info import MovieResultInfo
+        info = MovieResultInfo()
+        info.id = content_id
+        info.title = display_title
+        info.image = logo_url
+        info.fanart = logo_url
+        info.medias['default'] = m
+        elements.append(info)
+    except Exception as e:
+      logger.error('Failed to parse live channels: {}'.format(e))
     return elements
 
   # ===================================================================
@@ -328,6 +399,32 @@ class GraphQL():
   def _parse_media_metadata(self, item: dict) -> SearchResult:
     try:
       typename = item.get('__typename') or 'MediaMetadata'
+
+      if typename == 'LiveChannel':
+        if not item.get('id') or not item.get('title'):
+          return None
+        result = SearchResult()
+        result.title = item['title']
+        result.search_title = item['title']
+        result.id = item['id']
+        result.platform_tag = self.tag
+        result.has_access = True
+        result.media_type = 'live'
+        imgs = item.get('metadataImages') or {}
+        try:
+          result.image = (imgs.get('poster') or {}).get('url') or ''
+        except Exception:
+          pass
+        try:
+          result.fanart = (imgs.get('thumbnail') or {}).get('url') or ''
+        except Exception:
+          pass
+        try:
+          result.logo = (item.get('originatingNetworkLogo') or {}).get('url') or ''
+        except Exception:
+          pass
+        return result
+
       # ContentMetadata (e.g. EPISODIC containers): redirect to parent media so
       # the user lands on the show page instead of trying to play one episode.
       if typename == 'ContentMetadata':

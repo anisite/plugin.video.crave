@@ -247,9 +247,14 @@ elif OBJ_TYPE == 'media':
     if play_infos is None:
         xbmcgui.Dialog().ok(ADDON_NAME, 'No playback info available.')
     else:
+        is_live = media.additionnal_infos.get('is_live', False)
+
         try:
             import inputstreamhelper
-            is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
+            if play_infos.is_hls:
+                is_helper = inputstreamhelper.Helper('hls')
+            else:
+                is_helper = inputstreamhelper.Helper(PROTOCOL, drm=DRM)
             if not is_helper.check_inputstream():
                 exit(0)
             inputstream_addon = is_helper.inputstream_addon
@@ -257,29 +262,36 @@ elif OBJ_TYPE == 'media':
             inputstream_addon = 'inputstream.adaptive'
 
         play_item = xbmcgui.ListItem(path=play_infos.manifest_url)
-        play_item.setMimeType('application/dash+xml')
         play_item.setContentLookup(False)
         play_item.setProperty('inputstream', inputstream_addon)
-        play_item.setProperty('inputstream.adaptive.manifest_type', PROTOCOL)
-        play_item.setProperty('inputstream.adaptive.license_type', DRM)
-        play_item.setProperty(
-            'inputstream.adaptive.license_key', play_infos.license_url + '||R{SSM}|')
 
-        server_pos = cravings_api.get_bookmark(
-            session=crave.session,
-            token=crave.login_handler.access_token,
-            content_id=media.play_id,
-            content_package_id=play_infos.content_package_id,
-        )
-        if server_pos > 60:
-            play_item.setProperty('StartOffset', str(server_pos))
+        if play_infos.is_hls:
+            play_item.setMimeType('application/x-mpegURL')
+            play_item.setProperty('inputstream.adaptive.manifest_type', 'hls')
+        else:
+            play_item.setMimeType('application/dash+xml')
+            play_item.setProperty('inputstream.adaptive.manifest_type', PROTOCOL)
+            play_item.setProperty('inputstream.adaptive.license_type', DRM)
+            play_item.setProperty(
+                'inputstream.adaptive.license_key', play_infos.license_url + '||R{SSM}|')
+            play_item.setProperty('inputstream.adaptive.license_flags', 'persistent_storage')
+
+        if not is_live:
+            server_pos = cravings_api.get_bookmark(
+                session=crave.session,
+                token=crave.login_handler.access_token,
+                content_id=media.play_id,
+                content_package_id=play_infos.content_package_id,
+            )
+            if server_pos > 60:
+                play_item.setProperty('StartOffset', str(server_pos))
 
         content_type = 'movie' if media.type == 'movie' else 'episode'
         player = CravePlayer(
             play_id=media.play_id,
-            content_package_id=play_infos.content_package_id,
-            package_code=play_infos.package_code,
-            media_id=media.additionnal_infos.get('media_id', ''),
+            content_package_id='' if is_live else play_infos.content_package_id,
+            package_code='' if is_live else play_infos.package_code,
+            media_id='' if is_live else media.additionnal_infos.get('media_id', ''),
             content_type=content_type,
         )
         xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)

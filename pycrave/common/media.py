@@ -47,6 +47,8 @@ class Media():
         media_id = self.additionnal_infos.get('media_id', '')
         if media_id:
             params['media_id'] = media_id
+        if self.additionnal_infos.get('is_live'):
+            params['is_live'] = '1'
         return base + '?' + urlencode(params)
 
     @classmethod
@@ -58,6 +60,7 @@ class Media():
         obj.additionnal_infos = {
             'destination': args['dest'][0] if 'dest' in args else '',
             'media_id': args['media_id'][0] if 'media_id' in args else '',
+            'is_live': args.get('is_live', ['0'])[0] == '1',
         }
         return obj
 
