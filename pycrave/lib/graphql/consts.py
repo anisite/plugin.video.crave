@@ -134,13 +134,12 @@ GET_SEARCH_PAYLOAD = {
     'searchQuery': '',
     'pageNumber': 0,
     'pageSize': 50,
-    'collection': 'ALL'
   },
   'query': (
-    'query GetSearch($sessionContext: SessionContext!, $searchQuery: String!, $pageNumber: Int!, $pageSize: Int!, $collection: SearchCollectionType!) {'
+    'query GetSearch($sessionContext: SessionContext!, $searchQuery: String!, $pageNumber: Int!, $pageSize: Int!) {'
     '  search('
     '    sessionContext: $sessionContext'
-    '    searchRequest: {searchQuery: $searchQuery, pageNumber: $pageNumber, pageSize: $pageSize, collection: $collection}'
+    '    searchRequest: {searchQuery: $searchQuery, pageNumber: $pageNumber, pageSize: $pageSize}'
     '  ) {'
     '    pageSize hasMore found'
     '    mediaResults {'

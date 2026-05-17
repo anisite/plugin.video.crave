@@ -66,13 +66,13 @@ class GraphQL():
   # ===================================================================
 
   def get_root_categories(self) -> List[Category]:
-    return self.get_elements_screen(id=None, root=True)
+    return self._get_root_categories_rte()
 
   def get_elements(self, category: Category) -> List[Union[Category, SearchResult]]:
     if category is None:
       return None
     if category.type == 'screen':
-      return self.get_elements_screen(category.id)
+      return self._get_screen_rte(category.id)
     elif category.type == 'continue_watching':
       return self._get_continue_watching()
     elif category.type == 'my_list':
@@ -80,11 +80,6 @@ class GraphQL():
     elif category.type in ('rotator', 'grid', 'container'):
       return self.get_elements_container(category.id)
     return None
-
-  def get_elements_screen(self, id: str, root: bool = False) -> List[Union[Category, SearchResult]]:
-    if root:
-      return self._get_root_categories_rte()
-    return self._get_screen_rte(id)
 
   def _get_root_categories_rte(self) -> List[Category]:
     payload = deepcopy(GET_APP_PAYLOAD)
@@ -209,12 +204,6 @@ class GraphQL():
       logger.error('Failed to parse container response for id={}'.format(id))
     return elements
 
-  # kept for compatibility
-  def get_elements_rotator(self, id: str):
-    return self.get_elements_container(id)
-
-  def get_elements_grid(self, id: str):
-    return self.get_elements_container(id)
 
   def _get_continue_watching(self) -> List[SearchResult]:
     payload = deepcopy(GET_CONTINUE_WATCHING_PAYLOAD)
@@ -266,17 +255,23 @@ class GraphQL():
     payload['variables']['searchQuery'] = input.strip()
     response = self._make_rte_request(payload)
     if response.status_code != 200:
-      logger.error('GetSearch failed ({})'.format(response.status_code))
+      logger.error('GetSearch failed ({}) body={}'.format(response.status_code, response.text[:500]))
       return []
     suggestions = []
     try:
-      results = json.loads(response.text)['data']['search']['mediaResults']
-      for item in results or []:
+      body = json.loads(response.text)
+      if body.get('errors'):
+        logger.error('GetSearch GraphQL errors: {}'.format(body['errors']))
+        return []
+      search_data = (body.get('data') or {}).get('search') or {}
+      logger.debug('GetSearch found={} pageSize={}'.format(search_data.get('found'), search_data.get('pageSize')))
+      results = search_data.get('mediaResults') or []
+      for item in results:
         r = self._parse_media_metadata(item)
         if r:
           suggestions.append((fuzz.partial_ratio(r.title, input), r))
-    except Exception:
-      logger.error('Failed to parse search response')
+    except Exception as e:
+      logger.error('Failed to parse search response: {} body={}'.format(e, response.text[:500]))
     return [x for _, x in sorted(suggestions, reverse=True)][:50]
 
   # ===================================================================
@@ -389,9 +384,6 @@ class GraphQL():
     except Exception:
       return None
 
-  # kept for compatibility with list_items.py
-  def parse_search_result(self, item: dict) -> SearchResult:
-    return self._parse_media_metadata(item)
 
   def _parse_movie(self, media: dict, version: str) -> MovieResultInfo:
     first = media.get('firstContent')
