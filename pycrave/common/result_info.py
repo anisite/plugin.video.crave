@@ -8,6 +8,7 @@ class ResultInfo():
     def __init__(self):
         self.obj_type = 'title'
         self.type: str = ''
+        self.id: str = ''
 
         self.title: str = ''
         self.description: str = ''

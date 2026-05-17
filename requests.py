@@ -72,20 +72,20 @@ class Session:
             urllib.request.HTTPCookieProcessor(self.cookies._jar),
         )
 
-    def _request(self, url, data=None, headers=None):
+    def _request(self, url, data=None, headers=None, timeout=None):
         req = urllib.request.Request(url, data=data, headers=headers or {})
         try:
-            resp = self._opener.open(req)
+            resp = self._opener.open(req, timeout=timeout)
             raw, hdrs = _read_response(resp)
             return Response(resp.status, raw, hdrs)
         except urllib.error.HTTPError as e:
             raw = e.read()
             return Response(e.code, raw, dict(e.headers))
 
-    def get(self, url, headers=None):
-        return self._request(url, headers=headers)
+    def get(self, url, headers=None, timeout=None, **kwargs):
+        return self._request(url, headers=headers, timeout=timeout)
 
-    def post(self, url, json=None, data=None, headers=None):
+    def post(self, url, json=None, data=None, headers=None, timeout=None, **kwargs):
         hdrs = dict(headers or {})
         if json is not None:
             body = _json.dumps(json).encode('utf-8')
@@ -94,13 +94,13 @@ class Session:
             body = data.encode('utf-8') if isinstance(data, str) else data
         else:
             body = b''
-        return self._request(url, data=body, headers=hdrs)
+        return self._request(url, data=body, headers=hdrs, timeout=timeout)
 
 
-def get(url, headers=None):
+def get(url, headers=None, timeout=None, **kwargs):
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        resp = urllib.request.urlopen(req, context=_ssl_ctx)
+        resp = urllib.request.urlopen(req, context=_ssl_ctx, timeout=timeout)
         raw, hdrs = _read_response(resp)
         return Response(resp.status, raw, hdrs)
     except urllib.error.HTTPError as e:

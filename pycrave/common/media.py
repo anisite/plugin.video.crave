@@ -16,6 +16,7 @@ class Media():
         self.has_access: bool = has_access
 
         self.duration: int = duration
+        self.progress_percentage: float = 0.0
         self.playback_languages: List[str] = playback_languages
 
         self.play_id: Dict[str, str] = play_id
@@ -37,12 +38,16 @@ class Media():
         }
 
     def to_url(self, base: str):
-        return base + '?' + urlencode({
+        params = {
             "obj_type": self.obj_type,
             "id": self.play_id,
-            "dest": self.additionnal_infos['destination'],
-            "lang": self.playback_languages[0],
-        })
+            "dest": self.additionnal_infos.get('destination', ''),
+            "lang": self.playback_languages[0] if self.playback_languages else '',
+        }
+        media_id = self.additionnal_infos.get('media_id', '')
+        if media_id:
+            params['media_id'] = media_id
+        return base + '?' + urlencode(params)
 
     @classmethod
     def from_url(cls, url: str):
@@ -50,8 +55,10 @@ class Media():
         obj = cls(
             playback_languages=[args['lang'][0]] if 'lang' in args else [],
             play_id=args['id'][0] if 'id' in args else '')
-        obj.additionnal_infos = {'destination':
-                                 args['dest'][0]} if 'dest' in args else {}
+        obj.additionnal_infos = {
+            'destination': args['dest'][0] if 'dest' in args else '',
+            'media_id': args['media_id'][0] if 'media_id' in args else '',
+        }
         return obj
 
     def __str__(self) -> Dict[str, Any]:

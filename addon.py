@@ -14,7 +14,9 @@ from pycrave.common.search_result import SearchResult
 from pycrave.common.result_info import MovieResultInfo
 from pycrave.common.media import Media, MediaEpisode
 from pycrave.common.category import Category
-from list_items import add_item, add_search_item
+from list_items import add_item, add_search_item, add_favorites_item, init_dbs
+from pycrave.common.favorites_db import FavoritesDB
+from pycrave.lib.cravings import cravings as cravings_api
 from langs import get_text
 
 
@@ -46,6 +48,11 @@ OBJ_TYPE = utils.get_obj_type()
 CMDS = utils.get_cmds()
 utils.check_url()
 
+# DATABASES
+_PROFILE_DIR = utils.get_profile_dir()
+favorites_db = FavoritesDB(os.path.join(_PROFILE_DIR, 'favorites.json'))
+init_dbs(favorites_db)
+
 # INITIALIZE CLIENT
 crave = Crave(
     cache_dir=CACHE_DIR,
@@ -65,6 +72,69 @@ if crave.account_infos == None:
 GRID_VIEW = '500'
 LIST_VIEW = '55'
 EPISODES_VIEW = '502'
+
+
+class CravePlayer(xbmc.Player):
+    """Monitors playback to save/clear resume positions."""
+
+    def __init__(self, play_id, content_package_id='', package_code='',
+                 media_id='', content_type='episode'):
+        super().__init__()
+        self._play_id = play_id
+        self._content_package_id = content_package_id
+        self._package_code = package_code
+        self._media_id = media_id
+        self._content_type = content_type
+        self._last_pos = 0
+        self._last_dur = 0
+
+    def tick(self):
+        """Capture current playback position while the player is active."""
+        try:
+            self._last_pos = int(self.getTime())
+            self._last_dur = int(self.getTotalTime())
+        except Exception:
+            pass
+
+    def onPlayBackPaused(self):
+        self.tick()
+        self._post_bookmark(self._last_pos, self._last_dur)
+        LOGGER.debug('Paused: bookmark saved {}s for {}'.format(self._last_pos, self._play_id))
+
+    def onPlayBackStopped(self):
+        self._save()
+
+    def onPlayBackError(self):
+        self._save()
+
+    def onPlayBackEnded(self):
+        self._post_bookmark(0)
+        LOGGER.debug('Playback ended naturally for {}'.format(self._play_id))
+
+    def _save(self):
+        if self._last_pos > 0:
+            self._post_bookmark(self._last_pos, self._last_dur)
+            LOGGER.debug('Resume saved: {}s for {}'.format(self._last_pos, self._play_id))
+        else:
+            LOGGER.debug('No position to save for {}'.format(self._play_id))
+
+    def _post_bookmark(self, offset, duration=0):
+        if not self._content_package_id or not self._media_id:
+            return
+        try:
+            cravings_api.post_bookmark(
+                session=crave.session,
+                token=crave.login_handler.access_token,
+                content_id=self._play_id,
+                content_package_id=self._content_package_id,
+                package_code=self._package_code,
+                media_id=self._media_id,
+                content_type=self._content_type,
+                offset=offset,
+                duration=duration,
+            )
+        except Exception as e:
+            LOGGER.error('Failed to post bookmark: {}'.format(e))
 
 
 def _set_content_for(elements):
@@ -89,6 +159,7 @@ if OBJ_TYPE == 'none':
     if CMDS == 'main':
         xbmcplugin.setContent(ADDON_HANDLE, 'files')
         add_search_item()
+        add_favorites_item()
         elements = crave.get_root_categories()
         if elements is not None:
             for element in elements:
@@ -110,6 +181,36 @@ if OBJ_TYPE == 'none':
                 list_item = add_item(result, len(results))
             xbmcplugin.endOfDirectory(ADDON_HANDLE)
             xbmc.executebuiltin("Container.SetViewMode({})".format(view_mode))
+
+    # COMMAND: FAVORITES LIST
+    elif CMDS == 'favorites':
+        xbmcplugin.setContent(ADDON_HANDLE, 'videos')
+        favs = favorites_db.get_all()
+        for fav in favs:
+            r = SearchResult(
+                id=fav['id'],
+                title=fav['title'],
+                image=fav.get('image', ''),
+                media_type=fav.get('media_type', ''),
+            )
+            add_item(r, len(favs))
+        xbmcplugin.endOfDirectory(ADDON_HANDLE)
+        xbmc.executebuiltin('Container.SetViewMode({})'.format(GRID_VIEW))
+
+    # COMMAND: TOGGLE FAVORITE (RunPlugin — no directory)
+    elif CMDS == 'toggle_favorite':
+        args = parse.parse_qs(URL[1:])
+        fav_id = args.get('fav_id', [''])[0]
+        if fav_id:
+            added = favorites_db.toggle(
+                fav_id,
+                args.get('fav_title', [''])[0],
+                args.get('fav_image', [''])[0],
+                args.get('fav_media_type', [''])[0],
+            )
+            msg = 'Ajouté aux favoris' if added else 'Retiré des favoris'
+            xbmcgui.Dialog().notification(ADDON_NAME, msg, time=2000)
+        xbmc.executebuiltin('Container.Refresh')
 
 # CATEGORY PROVIDED
 elif OBJ_TYPE == 'category':
@@ -163,4 +264,32 @@ elif OBJ_TYPE == 'media':
         play_item.setProperty('inputstream.adaptive.license_type', DRM)
         play_item.setProperty(
             'inputstream.adaptive.license_key', play_infos.license_url + '||R{SSM}|')
+
+        server_pos = cravings_api.get_bookmark(
+            session=crave.session,
+            token=crave.login_handler.access_token,
+            content_id=media.play_id,
+            content_package_id=play_infos.content_package_id,
+        )
+        if server_pos > 60:
+            play_item.setProperty('StartOffset', str(server_pos))
+
+        content_type = 'movie' if media.type == 'movie' else 'episode'
+        player = CravePlayer(
+            play_id=media.play_id,
+            content_package_id=play_infos.content_package_id,
+            package_code=play_infos.package_code,
+            media_id=media.additionnal_infos.get('media_id', ''),
+            content_type=content_type,
+        )
         xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)
+
+        # Keep script alive so player callbacks (stop/end) can fire
+        monitor = xbmc.Monitor()
+        wait = 0
+        while wait < 20 and not monitor.abortRequested() and not player.isPlaying():
+            monitor.waitForAbort(0.5)
+            wait += 1
+        while not monitor.abortRequested() and player.isPlaying():
+            monitor.waitForAbort(1)
+            player.tick()

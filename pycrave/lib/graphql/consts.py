@@ -231,6 +231,28 @@ GET_MY_LIST_PAYLOAD = {
 }
 
 
+GET_BOOKMARKS_BY_SEASON_PAYLOAD = {
+  'operationName': 'GetBookmarksBySeasonIdPage',
+  'variables': {
+    'sessionContext': _SC,
+    'id': '',
+    'contentFormat': {'format': 'LONGFORM'},
+    'limit': 30
+  },
+  'query': (
+    'query GetBookmarksBySeasonIdPage($sessionContext: SessionContext!, $id: String!, $contentFormat: ContentFormatRequest, $cursor: String, $limit: Int) {'
+    '  bookmarksBySeasonIdItemsPage(sessionContext: $sessionContext, id: $id, contentFormat: $contentFormat, cursor: $cursor, limit: $limit) {'
+    '    cursor'
+    '    bookmarks {'
+    '      contentId'
+    '      progressPercentage'
+    '    }'
+    '  }'
+    '}'
+  )
+}
+
+
 GET_SEASON_PAYLOAD = {
   'operationName': 'GetContentBySeasonId',
   'variables': {

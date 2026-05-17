@@ -7,13 +7,15 @@ logger = logging.getLogger(__name__)
 
 
 class PlayInfos():
-    def __init__(self, manifest_url, subtitles_url: str, license_token=None, license_url=None, manifest_headers=None, license_headers=None):
+    def __init__(self, manifest_url, subtitles_url: str, license_token=None, license_url=None, manifest_headers=None, license_headers=None, package_code=None, content_package_id=None):
         logger.debug('Initializing play infos...')
         self.manifest_url: str = manifest_url
         self.subtitles_url: str = subtitles_url
         self.license_url: str = license_url
         self.manifest_headers: Dict[str, str] = manifest_headers
         self.license_headers: Dict[str, str] = license_headers
+        self.package_code: str = package_code or ''
+        self.content_package_id: str = content_package_id or ''
         self.manifest_response = None
 
         if self.license_url is None:

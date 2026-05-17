@@ -14,6 +14,7 @@ from .consts import (
   HEADERS, RTE_GRAPHQL_URL,
   GET_APP_PAYLOAD, GET_SCREEN_PAYLOAD, GET_CONTAINER_PAYLOAD,
   GET_SEARCH_PAYLOAD, GET_SHOWPAGE_PAYLOAD, GET_SEASON_PAYLOAD,
+  GET_BOOKMARKS_BY_SEASON_PAYLOAD,
   GET_CONTINUE_WATCHING_PAYLOAD, GET_MY_LIST_PAYLOAD
 )
 from typing import Any, Dict, List, Union
@@ -213,13 +214,19 @@ class GraphQL():
       return []
     elements = []
     try:
-      items = json.loads(response.text)['data']['continueWatchingItemsPage']['items'] or []
+      body = json.loads(response.text)
+      if body.get('errors'):
+        logger.error('GetContinueWatching GraphQL errors: {}'.format(body['errors']))
+        return []
+      items = ((body.get('data') or {}).get('continueWatchingItemsPage') or {}).get('items') or []
       for item in items:
         media = item.get('media') or {}
         if not media.get('id'):
           continue
         r = self._parse_media_metadata(media)
         if r:
+          r.resume_content_id = item.get('id', '')
+          r.resume_position = int(item.get('startOffset') or 0)
           elements.append(r)
     except Exception as e:
       logger.error('Failed to parse continue watching: {}'.format(e))
@@ -385,6 +392,24 @@ class GraphQL():
       return None
 
 
+  def _get_season_bookmarks(self, season_id: str, lang_code: str) -> dict:
+    """Return {contentId: progressPercentage} for all episodes in a season."""
+    payload = deepcopy(GET_BOOKMARKS_BY_SEASON_PAYLOAD)
+    payload['variables']['id'] = season_id
+    try:
+      response = self._make_rte_request(payload, lang=lang_code)
+      if response.status_code != 200:
+        logger.warning('GetBookmarksBySeasonIdPage failed ({}) season={}'.format(response.status_code, season_id))
+        return {}
+      items = (json.loads(response.text).get('data') or {})
+      items = (items.get('bookmarksBySeasonIdItemsPage') or {}).get('bookmarks') or []
+      result = {str(b['contentId']): float(b.get('progressPercentage') or 0) for b in items if b.get('contentId')}
+      logger.debug('Season {} bookmarks ({}): {}'.format(season_id, lang_code, result))
+      return result
+    except Exception as e:
+      logger.warning('_get_season_bookmarks failed for season={}: {}'.format(season_id, e))
+      return {}
+
   def _parse_movie(self, media: dict, version: str) -> MovieResultInfo:
     first = media.get('firstContent')
     if not first:
@@ -412,6 +437,7 @@ class GraphQL():
         except Exception:
           pass
         infos = MovieResultInfo()
+        infos.id = str(media.get('id', ''))
         infos.title = media.get('title', '')
         infos.summary = media.get('description', '')
         infos.description = media.get('description', '')
@@ -438,6 +464,7 @@ class GraphQL():
 
   def _parse_series(self, media: dict, version: str, lang_code: str) -> SerieResultInfo:
     infos = SerieResultInfo()
+    infos.id = str(media.get('id', ''))
     infos.title = media.get('title', '')
     infos.summary = media.get('description', '')
     infos.description = media.get('description', '')
@@ -474,6 +501,8 @@ class GraphQL():
       except Exception:
         continue
 
+      bookmarks = self._get_season_bookmarks(season['id'], lang_code)
+
       for episode in episodes:
         try:
           ep_num = int(episode['episodeNumber'])
@@ -504,5 +533,10 @@ class GraphQL():
               ep.image = episode['metadataImages']['thumbnail']['url']
             except Exception:
               pass
+            ep.progress_percentage = bookmarks.get(str(episode['id']), 0.0)
+            if ep.progress_percentage:
+              logger.debug('Episode {} ({}) progress={}% duration={}s resume={}s'.format(
+                ep_tag, episode['id'], ep.progress_percentage, ep.duration,
+                int(ep.duration * ep.progress_percentage / 100) if ep.duration else 0))
             infos.medias[ep_tag] = ep
     return infos

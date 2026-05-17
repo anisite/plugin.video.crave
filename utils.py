@@ -168,7 +168,8 @@ def get_cmds():
 def check_url():
     obj_type = get_obj_type()
     cmds = get_cmds()
-    if obj_type not in ['category', 'result', 'media'] and cmds not in ['main', 'search']:
+    valid_cmds = ('main', 'search', 'favorites', 'toggle_favorite')
+    if obj_type not in ['category', 'result', 'media'] and cmds not in valid_cmds:
         LOGGER.error('No object or command provided.')
         exit(1)
     LOGGER.debug('Url format has been checked.')

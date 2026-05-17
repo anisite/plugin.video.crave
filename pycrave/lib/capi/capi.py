@@ -78,7 +78,9 @@ class CAPI():
         subtitles_url=subtitles_url_piped,
         license_url=license_url,
         manifest_headers=STREAM_HEADERS,
-        license_headers=STREAM_HEADERS
+        license_headers=STREAM_HEADERS,
+        package_code=package_code,
+        content_package_id=package_id,
     )
 
   @staticmethod

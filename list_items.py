@@ -26,7 +26,16 @@ STYLE_ICONS = {
     'LIVE': 'live.png',
     'EPISODIC': 'episodic.png',
     'SCREEN': 'screen.png',
+    'FAVORITES': 'favorites.png',
 }
+
+# Module-level DB references set by init_dbs() from addon.py
+_favorites_db = None
+
+
+def init_dbs(favorites_db):
+    global _favorites_db
+    _favorites_db = favorites_db
 
 
 def _icon_for_style(style):
@@ -47,6 +56,17 @@ def add_search_item():
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE,
         url=BASE_URL + '?' + urlencode({'cmds': 'search'}),
+        listitem=list_item,
+        isFolder=True)
+
+
+def add_favorites_item():
+    icon = _icon_for_style('FAVORITES')
+    list_item = xbmcgui.ListItem('Mes favoris')
+    list_item.setArt({'thumb': icon, 'icon': icon, 'fanart': DEFAULT_FANART})
+    xbmcplugin.addDirectoryItem(
+        handle=ADDON_HANDLE,
+        url=BASE_URL + '?' + urlencode({'cmds': 'favorites'}),
         listitem=list_item,
         isFolder=True)
 
@@ -105,6 +125,17 @@ def add_item_result(element, total):
     if media_type in ('movie', 'tvshow'):
         info['mediatype'] = media_type
     list_item.setInfo('video', info)
+    # Favorites context menu
+    if _favorites_db is not None:
+        fav_label = 'Retirer des favoris' if _favorites_db.is_favorite(element.id) else 'Ajouter aux favoris'
+        fav_url = BASE_URL + '?' + urlencode({
+            'cmds': 'toggle_favorite',
+            'fav_id': element.id,
+            'fav_title': element.title,
+            'fav_image': element.image or '',
+            'fav_media_type': element.media_type or '',
+        })
+        list_item.addContextMenuItems([(fav_label, 'RunPlugin({})'.format(fav_url))])
     kwargs = {
         'handle': ADDON_HANDLE,
         'url': element.to_url(BASE_URL),
@@ -121,6 +152,18 @@ def add_item_title(element):
         return add_item_title_serie(element)
     elif element.type == 'movie':
         add_item_title_movie(element)
+
+
+def _set_resume_indicator(list_item, progress_pct, total_secs):
+    """Show a resume progress indicator without triggering Kodi's resume dialog.
+    Setting TotalTime to '' is the trick that skips the popup while keeping the bar."""
+    if not progress_pct or progress_pct >= 95 or not total_secs:
+        return
+    resume_secs = int(total_secs * progress_pct / 100)
+    if resume_secs <= 0:
+        return
+    list_item.setProperty('ResumeTime', str(resume_secs))
+    list_item.setProperty('TotalTime', '')
 
 
 def _build_art(primary, fanart, logo):
@@ -145,6 +188,7 @@ def add_item_title_serie(element):
     series_image = element.image or ''
     for episode_tag in sorted(element.medias, reverse=True):
         media = element.medias[episode_tag]
+        media.additionnal_infos['media_id'] = element.id
         list_item = xbmcgui.ListItem(episode_tag)
         # Per-episode thumbnail when available, fall back to the series art
         ep_image = media.image or series_image
@@ -161,12 +205,14 @@ def add_item_title_serie(element):
         }
         list_item.setInfo('video', info)
         list_item.setProperty('IsPlayable', 'true')
+        _set_resume_indicator(list_item, getattr(media, 'progress_percentage', 0.0), media.duration or 0)
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE, url=media.to_url(BASE_URL), listitem=list_item, isFolder=False)
 
 
 def add_item_title_movie(element):
     media = element.medias['default']
+    media.additionnal_infos['media_id'] = element.id
     list_item = xbmcgui.ListItem(element.title)
     primary = media.image or element.image or ''
     fanart = getattr(element, 'fanart', '') or primary
@@ -182,5 +228,6 @@ def add_item_title_movie(element):
     }
     list_item.setInfo('video', info)
     list_item.setProperty('IsPlayable', 'true')
+    _set_resume_indicator(list_item, getattr(media, 'progress_percentage', 0.0), media.duration or 0)
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE, url=media.to_url(BASE_URL), listitem=list_item, isFolder=False)
