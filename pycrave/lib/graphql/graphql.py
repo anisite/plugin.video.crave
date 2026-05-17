@@ -114,9 +114,15 @@ class GraphQL():
     # Identify the home screen and inline its containers, with the remaining
     # screens listed alongside as folders.
     home = next((s for s in screens if s['path'] == 'home' or 'home' in s['id']), None)
+    non_home_ids = {s['id'] for s in screens if home is None or s['id'] != home['id']}
     elements: List[Union[Category, SearchResult]] = []
     if home is not None:
-      elements.extend(self._get_screen_rte(home['id']))
+      # Inline home containers but drop any sub-nav links that are already
+      # top-level screens (avoids duplicates like "Junior" appearing twice).
+      for el in self._get_screen_rte(home['id']):
+        if getattr(el, 'id', None) in non_home_ids:
+          continue
+        elements.append(el)
     for s in screens:
       if home is not None and s['id'] == home['id']:
         continue
@@ -160,6 +166,7 @@ class GraphQL():
       if not elements and len(containers) == 1:
         return self.get_elements_container(containers[0]['id'])
 
+      seen_titles = set()
       for c in containers:
         title = (c.get('displayTitle') or '').strip()
         style = (c.get('style') or '').upper()
@@ -167,6 +174,11 @@ class GraphQL():
         # (e.g. "Advanced Container | EN/FR | ... | Promo Teasers")
         if not title or style == 'TEASER' or '|' in title:
           continue
+        # Skip duplicate titles (API sometimes returns same-named containers)
+        title_key = title.lower()
+        if title_key in seen_titles:
+          continue
+        seen_titles.add(title_key)
         if style == 'CONTINUEWATCHING':
           elements.append(Category(type='continue_watching', title=title, id=c['id'], style=style))
         elif style == 'MYLIST':
